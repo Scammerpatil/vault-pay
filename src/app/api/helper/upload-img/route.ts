@@ -1,35 +1,55 @@
 import { NextRequest, NextResponse } from "next/server";
-import fs from "fs";
-import path from "path";
+import { v2 as cloudinary } from "cloudinary";
+
+cloudinary.config({
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME!,
+  api_key: process.env.CLOUDINARY_API_KEY!,
+  api_secret: process.env.CLOUDINARY_API_SECRET!,
+});
 
 export async function POST(req: NextRequest) {
   try {
-    const request = await req.formData();
-    const file = request.get("file");
-    var name = request.get("name") as string;
-    name = name.split(" ").join("_");
-    const folderName = request.get("folderName");
-    if (!fs.existsSync(`public/${folderName}`)) {
-      fs.mkdirSync(`public/${folderName}`);
-    }
-    if (file instanceof Blob && typeof name === "string") {
-      const fileBuffer = Buffer.from(await file.arrayBuffer());
-      const filePath = path.join(`public/${folderName}`, name + `.jpg`);
-      fs.writeFileSync(filePath, fileBuffer);
-      const imagePath = `/${folderName}/${name}.jpg`;
+    const formData = await req.formData();
+    const file = formData.get("file");
+    let name = formData.get("name") as string;
+    const folderName = formData.get("folderName") as string;
 
-      return NextResponse.json({ success: true, path: imagePath });
-    } else {
+    if (!file || !(file instanceof Blob)) {
       return NextResponse.json(
-        { success: false, error: "Invalid file or filename" },
-        { status: 400 }
+        { success: false, error: "Invalid file" },
+        { status: 400 },
       );
     }
-  } catch (error: unknown) {
+
+    name = name.split(" ").join("_");
+
+    const buffer = Buffer.from(await file.arrayBuffer());
+
+    const uploadResult = await new Promise<any>((resolve, reject) => {
+      cloudinary.uploader
+        .upload_stream(
+          {
+            folder: folderName,
+            public_id: name,
+            resource_type: "image",
+          },
+          (error, result) => {
+            if (error) reject(error);
+            else resolve(result);
+          },
+        )
+        .end(buffer);
+    });
+
+    return NextResponse.json({
+      success: true,
+      path: uploadResult.secure_url,
+    });
+  } catch (error) {
     console.error(error);
     return NextResponse.json(
       { success: false, error: "Unknown error occurred during upload." },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }
